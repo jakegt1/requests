@@ -271,6 +271,19 @@ class TestRequests:
         for header in purged_headers:
             assert header not in next_resp.request.headers
 
+    def test_keep_method_on_302_redirect(self, httpbin):
+        ses = requests.Session()
+        req = requests.Request('POST', httpbin('post'), data={'test': 'data'})
+        prep = ses.prepare_request(req)
+        resp = ses.send(prep)
+
+        resp.status_code = 302
+        resp.headers['location'] = 'post'
+
+        next_resp = next(ses.resolve_redirects(resp, prep, keep_method_after_redirect=True))
+        assert next_resp.request.method == "POST"
+        assert next_resp.text is not None
+
     def test_transfer_enc_removal_on_redirect(self, httpbin):
         purged_headers = ('Transfer-Encoding', 'Content-Type')
         ses = requests.Session()

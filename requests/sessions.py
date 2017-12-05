@@ -116,8 +116,9 @@ class SessionRedirectMixin(object):
             return to_native_string(location, 'utf8')
         return None
 
-    def resolve_redirects(self, resp, req, stream=False, timeout=None,
-                          verify=True, cert=None, proxies=None, yield_requests=False, **adapter_kwargs):
+    def resolve_redirects(self, resp, req, keep_method_after_redirect=False, stream=False, timeout=None,
+                          verify=True, cert=None, proxies=None, yield_requests=False,
+                          **adapter_kwargs):
         """Receives a Response. Returns a generator of Responses or Requests."""
 
         hist = []  # keep track of history
@@ -161,7 +162,10 @@ class SessionRedirectMixin(object):
 
             prepared_request.url = to_native_string(url)
 
-            self.rebuild_method(prepared_request, resp)
+            # If we always want to keep the method in case of target HTTP status code misuse,
+            # do not rebuild the method.
+            if not keep_method_after_redirect:
+                self.rebuild_method(prepared_request, resp)
 
             # https://github.com/requests/requests/issues/1084
             if resp.status_code not in (codes.temporary_redirect, codes.permanent_redirect):
@@ -441,7 +445,8 @@ class Session(SessionRedirectMixin):
     def request(self, method, url,
             params=None, data=None, headers=None, cookies=None, files=None,
             auth=None, timeout=None, allow_redirects=True, proxies=None,
-            hooks=None, stream=None, verify=None, cert=None, json=None):
+            hooks=None, stream=None, verify=None, cert=None, json=None,
+            keep_method_after_redirect=False):
         """Constructs a :class:`Request <Request>`, prepares it and sends it.
         Returns :class:`Response <Response>` object.
 
@@ -503,6 +508,7 @@ class Session(SessionRedirectMixin):
         send_kwargs = {
             'timeout': timeout,
             'allow_redirects': allow_redirects,
+            'keep_method_after_redirect': keep_method_after_redirect
         }
         send_kwargs.update(settings)
         resp = self.send(prep, **send_kwargs)
@@ -604,7 +610,9 @@ class Session(SessionRedirectMixin):
             raise ValueError('You can only send PreparedRequests.')
 
         # Set up variables needed for resolve_redirects and dispatching of hooks
+        # Also pop them to avoid being passed to adapter.send
         allow_redirects = kwargs.pop('allow_redirects', True)
+        keep_method_after_redirect = kwargs.pop('keep_method_after_redirect', False)
         stream = kwargs.get('stream')
         hooks = request.hooks
 
@@ -634,7 +642,7 @@ class Session(SessionRedirectMixin):
         extract_cookies_to_jar(self.cookies, request, r.raw)
 
         # Redirect resolving generator.
-        gen = self.resolve_redirects(r, request, **kwargs)
+        gen = self.resolve_redirects(r, request, keep_method_after_redirect, **kwargs)
 
         # Resolve redirects if allowed.
         history = [resp for resp in gen] if allow_redirects else []
